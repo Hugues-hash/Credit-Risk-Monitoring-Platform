@@ -1,0 +1,15 @@
+# Data files (avoid committing large CSVs)
+data/*.csv
+data/*.zip
+
+# Python virtual environment
+venv/
+.env
+__pycache__/
+*.pyc
+
+# Operating system / IDE files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
