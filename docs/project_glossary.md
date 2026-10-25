@@ -44,3 +44,9 @@
 ### 9. DTI (Debt-to-Income Ratio)
 * **Definition**: A personal finance measure that compares a borrower’s total monthly debt payments against their gross monthly income, expressed as a percentage.
 * **In This Project**: A key risk driver; profiling revealed values ranging from -1 to 999, meaning extreme outliers and anomalies must be cleaned before modeling borrower risk capacity.
+
+### 10. Fico_score
+FICO is the standard US credit score, ranging from 300 to 850. Higher means lower risk. It's the strongest single predictor of default, so your model and dashboards should include it.
+fico_score = (fico_range_low + fico_range_high) / 2. In your data that gives scores from 612 to 847. Treat a last_fico value of 0 as NULL.
+
+Use fico_score in the ML model. Don't use last_fico_score: it's measured after the loan was issued, so a defaulted borrower's later score has already dropped. That leaks the answer into the training data.
