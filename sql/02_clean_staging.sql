@@ -38,10 +38,22 @@ SELECT
     TRY_CAST(int_rate    AS DECIMAL(5, 2))          AS int_rate,
     TRY_CAST(installment AS DECIMAL(10, 2))         AS installment,
 
-    -- Borrower risk
-    NULLIF(TRY_CAST(annual_inc AS DECIMAL(14, 2)), 0)  AS annual_inc,   -- 0 income -> NULL
-    NULLIF(TRY_CAST(dti        AS DECIMAL(7, 2)), -1)  AS dti,          -- -1 -> NULL
-    TRY_CAST(revol_util     AS DECIMAL(6, 2))       AS revol_util,
+    -- Borrower risk (Cleaned anomalies and extreme outliers)
+    CASE 
+        WHEN TRY_CAST(annual_inc AS DECIMAL(14, 2)) < 5000 THEN NULL
+        ELSE TRY_CAST(annual_inc AS DECIMAL(14, 2))
+    END AS annual_inc,
+    
+    CASE 
+        WHEN TRY_CAST(dti AS DECIMAL(7, 2)) IN (-1, 999) THEN NULL
+        ELSE TRY_CAST(dti AS DECIMAL(7, 2))
+    END AS dti,
+
+    CASE 
+        WHEN TRY_CAST(revol_util AS DECIMAL(6, 2)) > 150.00 THEN NULL
+        ELSE TRY_CAST(revol_util AS DECIMAL(6, 2))
+    END AS revol_util,
+
     TRY_CAST(revol_bal      AS DECIMAL(14, 2))      AS revol_bal,
     TRY_CAST(delinq_2yrs    AS FLOAT)               AS delinq_2yrs,
     TRY_CAST(inq_last_6mths AS FLOAT)               AS inq_last_6mths,
