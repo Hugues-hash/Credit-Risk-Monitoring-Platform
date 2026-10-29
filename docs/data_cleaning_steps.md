@@ -2,8 +2,8 @@
 
 This page explains how the raw loan data is cleaned before we build the star schema.
 
-- **Script:** `sql/01_clean_staging.sql`
-- **Checks:** `sql/01b_validate_clean.sql`
+- **Script:** `sql/02_clean_staging.sql`
+- **Checks:** `sql/03_validate_clean.sql`
 - **Input:** `staging.stg_accepted_loans` (raw copy of the CSV, every column stored as text)
 - **Output:** `filtered.loans` (one row per loan, correct data types, problems fixed)
 
@@ -61,8 +61,9 @@ All money amounts, rates and counts are converted from text to numbers so we can
 
 | Column | Problem | Fix |
 |---|---|---|
-| `annual_inc` | 1,667 loans show an income of `0` | Set to empty (NULL). A real borrower can't have zero income |
-| `dti` | Some values are `-1` | Set to empty (NULL). A debt-to-income ratio can't be negative |
+| `annual_inc` | Contains junk entries ($0, $0.36) well below survival wages | Set anything `< 5000` to empty (NULL) to remove bad data. |
+| `dti` | Contains `-1` and system placeholder `999` | Set `-1` and `999` to empty (NULL). |
+| `revol_util` | Extremely high outliers up to 892% | Set anything `> 150` to empty (NULL) as these are likely data entry errors. |
 
 ## Step 7: Add new columns
 
@@ -72,6 +73,7 @@ All money amounts, rates and counts are converted from text to numbers so we can
 | `is_default` | From `loan_status` (see below) | The outcome we want to predict |
 
 **How `is_default` is set:**
+*(Note: We keep strict definitions. Loans that are "Late 31-120 days" remain active/NULL because they have not officially been written off as a loss yet. This prevents label noise in our machine learning models).*
 
 | `loan_status` | `is_default` |
 |---|---|
@@ -89,21 +91,21 @@ Not every empty value means the same thing, so they are treated differently.
 |---|---:|---|---|
 | `next_pymnt_date` | 1,345,310 | The loan is closed, so there is no next payment | Keep empty. This is the correct answer, not missing data |
 | `emp_length` | 146,907 | Borrower did not give it | Label as `Unknown`. Being unknown may itself be a sign of risk |
-| `annual_inc` | 1,671 | Blank or zero in the source | Keep empty in SQL |
-| `dti` | 1,713 | Blank or `-1` in the source | Keep empty in SQL |
-| `revol_util` | 1,802 | Blank in the source | Keep empty in SQL |
+| `annual_inc` | ~1,671+ | Blank or `< 5000` in the source | Keep empty in SQL |
+| `dti` | ~1,713+ | Blank, `-1`, or `999` in the source | Keep empty in SQL |
+| `revol_util` | ~1,802+ | Blank or `> 150%` in the source | Keep empty in SQL |
 | `earliest_cr_date` | 29 | Blank in the source | Keep empty in SQL |
 
 **Why we don't fill in guesses here:**
 
-- Dashboards should show real data. Power BI averages skip empty values on their own, and fewer than 0.1% of rows are affected.
+- Dashboards should show real data. Power BI averages skip empty values on their own.
 - Guesses for the machine learning model are made later in Python, using only the training data. If we filled them in here, we would use information from the test data, and the model would look better than it really is.
 
 ---
 
 ## Results of the checks
 
-Run `sql/01b_validate_clean.sql` after cleaning. Expected results:
+Run `sql/03_validate_clean.sql` after cleaning. Expected results:
 
 | Check | Expected |
 |---|---|
@@ -115,5 +117,4 @@ Run `sql/01b_validate_clean.sql` after cleaning. Expected results:
 
 ## Things to look at later
 
-- `dti` has 2,561 values above 100, up to 999. These look like data errors but are kept for now.
-- The smallest non-zero `annual_inc` is $0.36, which is not a real income. A few more junk incomes may need fixing.
+- High-end outliers in `annual_inc` (up to $110M) are preserved in SQL but should be handled via capping or log-transformation during the Python machine learning phase so they don't skew linear models.
