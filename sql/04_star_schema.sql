@@ -1,30 +1,19 @@
 USE credit_risk_db;
 GO
 
--- ============================================================================
--- PHASE 2: STAR SCHEMA CREATION (GOLD LAYER)
--- Target Database: credit_risk_db
--- Schema: warehouse
--- ============================================================================
-
--- 1. Create the Warehouse Schema
 IF SCHEMA_ID('warehouse') IS NULL
 BEGIN
     EXEC('CREATE SCHEMA warehouse;');
 END
 GO
 
--- Drop existing tables if re-running script (in reverse order of foreign keys)
 DROP TABLE IF EXISTS warehouse.Fact_Loan_Performance;
 DROP TABLE IF EXISTS warehouse.Dim_Borrower;
 DROP TABLE IF EXISTS warehouse.Dim_Loan;
 DROP TABLE IF EXISTS warehouse.Dim_Geography;
 DROP TABLE IF EXISTS warehouse.Dim_Date;
+DROP TABLE IF EXISTS warehouse.Dim_Status;
 GO
-
--- ============================================================================
--- 2. CREATE DIMENSION TABLES
--- ============================================================================
 
 -- Dim_Borrower: Captures borrower characteristics
 CREATE TABLE warehouse.Dim_Borrower (
@@ -54,9 +43,9 @@ CREATE TABLE warehouse.Dim_Geography (
 );
 GO
 
--- Dim_Date: Calendar dimension for cohort/vintage analysis
+-- Dim_Date: Calendar dimension for cohort analysis
 CREATE TABLE warehouse.Dim_Date (
-    date_key INT PRIMARY KEY, -- Format: YYYYMMDD
+    date_key INT PRIMARY KEY, 
     full_date DATE NULL,
     month_num INT NULL,
     year_num INT NULL,
@@ -64,9 +53,13 @@ CREATE TABLE warehouse.Dim_Date (
 );
 GO
 
--- ============================================================================
--- 3. CREATE CENTRAL FACT TABLE
--- ============================================================================
+-- Dim_Status: Captures loan status and its monitoring group
+CREATE TABLE warehouse.Dim_Status (
+    status_key INT IDENTITY(1,1) PRIMARY KEY,
+    loan_status VARCHAR(100) NULL,
+    status_group VARCHAR(20) NULL -- Active, Late, Paid, Defaulted
+);
+GO
 
 CREATE TABLE warehouse.Fact_Loan_Performance (
     loan_fact_key INT IDENTITY(1,1) PRIMARY KEY,
@@ -76,7 +69,11 @@ CREATE TABLE warehouse.Fact_Loan_Performance (
     borrower_key INT NULL,
     loan_dim_key INT NULL,
     geography_key INT NULL,
+    status_key INT NULL,
     issue_date_key INT NULL,
+    earliest_cr_date_key INT NULL,
+    last_pymnt_date_key INT NULL,
+    next_pymnt_date_key INT NULL,
 
     -- Financial Exposure
     loan_amnt DECIMAL(12, 2) NULL,
@@ -105,14 +102,17 @@ CREATE TABLE warehouse.Fact_Loan_Performance (
     recoveries DECIMAL(12, 2) NULL,
     last_pymnt_amnt DECIMAL(12, 2) NULL,
 
-    -- Performance & Target Variables
-    loan_status VARCHAR(100) NULL,
+    -- Target Variable
     is_default INT NULL,
 
     -- Foreign Key Constraints
     CONSTRAINT FK_Fact_Borrower FOREIGN KEY (borrower_key) REFERENCES warehouse.Dim_Borrower(borrower_key),
     CONSTRAINT FK_Fact_Loan FOREIGN KEY (loan_dim_key) REFERENCES warehouse.Dim_Loan(loan_dim_key),
     CONSTRAINT FK_Fact_Geography FOREIGN KEY (geography_key) REFERENCES warehouse.Dim_Geography(geography_key),
-    CONSTRAINT FK_Fact_Date FOREIGN KEY (issue_date_key) REFERENCES warehouse.Dim_Date(date_key)
+    CONSTRAINT FK_Fact_Status FOREIGN KEY (status_key) REFERENCES warehouse.Dim_Status(status_key),
+    CONSTRAINT FK_Fact_Issue_Date FOREIGN KEY (issue_date_key) REFERENCES warehouse.Dim_Date(date_key),
+    CONSTRAINT FK_Fact_Earliest_Cr_Date FOREIGN KEY (earliest_cr_date_key) REFERENCES warehouse.Dim_Date(date_key),
+    CONSTRAINT FK_Fact_Last_Pymnt_Date FOREIGN KEY (last_pymnt_date_key) REFERENCES warehouse.Dim_Date(date_key),
+    CONSTRAINT FK_Fact_Next_Pymnt_Date FOREIGN KEY (next_pymnt_date_key) REFERENCES warehouse.Dim_Date(date_key)
 );
 GO

@@ -2,7 +2,7 @@
 
 This document explains the final step of our database pipeline: moving the cleaned data from `filtered.loans` (our Silver layer) into the `warehouse` Star Schema (our Gold layer).
 
-This process is executed via the `sql/04_populate_warehouse.sql` script.
+The empty warehouse tables are created by `sql/04_star_schema.sql`. The load itself will be executed via `sql/05_populate_warehouse.sql`, which has not been written yet.
 
 ## The Strategy: Two-Step Pumping
 
@@ -16,7 +16,7 @@ You cannot load a Star Schema all at once. Because the central Fact table relies
 
 **Why these columns?** Dimension tables hold *categorical* and *descriptive* data. They are the text-based attributes you will use in Power BI to slice, filter, and group your dashboards (e.g., "Show me defaults *by State* or *by Loan Grade*"). 
 
-We use `SELECT DISTINCT` to ensure we only insert unique combinations of these traits, which saves massive amounts of storage space. SQL Server automatically generates a unique integer ID (`IDENTITY`) for each new row.
+We use `SELECT DISTINCT` to ensure we only insert unique combinations of these traits, which saves massive amounts of storage space. SQL Server automatically generates a unique integer ID (`IDENTITY`) for each new row. The exception is `Dim_Date`, whose `date_key` is built from the date itself (`YYYYMMDD`).
 
 ### 1. `Dim_Borrower`
 Contains information about the person applying for the loan.
@@ -35,8 +35,13 @@ Contains location data.
 
 ### 4. `Dim_Date`
 Contains calendar information.
-* **Columns Extracted:** `issue_date` (transformed into `date_key`, `month_num`, `year_num`, `quarter_num`)
-* **Why?** Building a dedicated date table is a Power BI best practice. It allows for "Time Intelligence" calculations like month-over-month growth or cohort vintage tracking.
+* **Columns Extracted:** `issue_date`, `earliest_cr_date`, `last_pymnt_date`, `next_pymnt_date` (transformed into `date_key`, `full_date`, `month_num`, `year_num`, `quarter_num`)
+* **Why?** Building a dedicated date table is a Power BI best practice. It allows for "Time Intelligence" calculations like month-over-month growth or cohort vintage tracking. The table must cover every date in all four columns, or the Fact table load will fail on the foreign keys.
+
+### 5. `Dim_Status`
+Contains the state of the loan.
+* **Columns Extracted:** `loan_status` (mapped into `status_group`: Active, Late, Paid, Defaulted)
+* **Why?** `is_default` is `NULL` for every loan that is still open, so it cannot separate a healthy loan from a late one. `status_group` makes that split available for monitoring dashboards.
 
 ---
 
@@ -47,8 +52,8 @@ Contains calendar information.
 Instead of storing repeating text (like the word "MORTGAGE" 1.2 million times), it stores the tiny integer IDs linking back to the dimensions, alongside all the heavy financial math.
 
 ### 1. The Surrogate Keys (The Links)
-* **Columns:** `borrower_key`, `loan_dim_key`, `geography_key`, `issue_date_key`
-* **Why?** The script joins the 2.26 million rows in `filtered.loans` against the new Dimension tables to fetch these integer IDs. This links the numbers to their descriptive categories.
+* **Columns:** `borrower_key`, `loan_dim_key`, `geography_key`, `status_key`, `issue_date_key`, `earliest_cr_date_key`, `last_pymnt_date_key`, `next_pymnt_date_key`
+* **Why?** The script joins the 2.26 million rows in `filtered.loans` against the new Dimension tables to fetch these integer IDs. This links the numbers to their descriptive categories. A missing date stays `NULL`, so the date keys must be built without an `INNER JOIN` to `Dim_Date`, which would drop those loans.
 
 ### 2. Financial Exposure Metrics
 * **Columns:** `loan_amnt`, `funded_amnt`, `int_rate`, `installment`
@@ -62,6 +67,6 @@ Instead of storing repeating text (like the word "MORTGAGE" 1.2 million times), 
 * **Columns:** `out_prncp`, `total_pymnt`, `total_rec_prncp`, `total_rec_int`, `total_rec_late_fee`, `recoveries`, `last_pymnt_amnt`
 * **Why?** These track the money actually coming back to the lender. `recoveries`, for example, tracks money salvaged from debt collectors after a default.
 
-### 5. Target Variables
-* **Columns:** `loan_status` (Text), `is_default` (Binary 1, 0, or NULL)
+### 5. Target Variable
+* **Columns:** `is_default` (Binary 1, 0, or NULL)
 * **Why?** `is_default` is our "North Star" target variable. Everything else in the database is ultimately being analyzed to predict or explain this exact column.

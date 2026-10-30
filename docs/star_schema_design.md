@@ -4,7 +4,7 @@ This document explains the architecture of the final analytical data warehouse. 
 
 ## 1. Architectural Overview
 
-We use a standard dimensional model (Star Schema) consisting of one central Fact table surrounded by four Dimension tables.
+We use a standard dimensional model (Star Schema) consisting of one central Fact table surrounded by five Dimension tables.
 
 * **Database:** `credit_risk_db`
 * **Schema:** `warehouse`
@@ -20,7 +20,11 @@ erDiagram
     Fact_Loan_Performance }|--|| Dim_Borrower : "borrower_key"
     Fact_Loan_Performance }|--|| Dim_Loan : "loan_dim_key"
     Fact_Loan_Performance }|--|| Dim_Geography : "geography_key"
+    Fact_Loan_Performance }|--|| Dim_Status : "status_key"
     Fact_Loan_Performance }|--|| Dim_Date : "issue_date_key = date_key"
+    Fact_Loan_Performance }|--o| Dim_Date : "earliest_cr_date_key = date_key"
+    Fact_Loan_Performance }|--o| Dim_Date : "last_pymnt_date_key = date_key"
+    Fact_Loan_Performance }|--o| Dim_Date : "next_pymnt_date_key = date_key"
 
     Dim_Borrower {
         INT borrower_key PK
@@ -33,7 +37,9 @@ erDiagram
         INT loan_dim_key PK
         INT term_months
         CHAR grade
+        VARCHAR sub_grade
         VARCHAR purpose
+        VARCHAR application_type
     }
 
     Dim_Geography {
@@ -47,6 +53,13 @@ erDiagram
         DATE full_date
         INT month_num
         INT year_num
+        INT quarter_num
+    }
+
+    Dim_Status {
+        INT status_key PK
+        VARCHAR loan_status
+        VARCHAR status_group
     }
 
     Fact_Loan_Performance {
@@ -55,10 +68,33 @@ erDiagram
         INT borrower_key FK
         INT loan_dim_key FK
         INT geography_key FK
+        INT status_key FK
         INT issue_date_key FK
+        INT earliest_cr_date_key FK
+        INT last_pymnt_date_key FK
+        INT next_pymnt_date_key FK
         DECIMAL loan_amnt
-        INT is_default
+        DECIMAL funded_amnt
+        DECIMAL int_rate
+        DECIMAL installment
+        DECIMAL annual_inc
+        DECIMAL dti
+        DECIMAL revol_util
+        DECIMAL revol_bal
         FLOAT fico_score
+        FLOAT delinq_2yrs
+        FLOAT inq_last_6mths
+        FLOAT open_acc
+        FLOAT total_acc
+        FLOAT pub_rec
+        DECIMAL out_prncp
+        DECIMAL total_pymnt
+        DECIMAL total_rec_prncp
+        DECIMAL total_rec_int
+        DECIMAL total_rec_late_fee
+        DECIMAL recoveries
+        DECIMAL last_pymnt_amnt
+        INT is_default
     }
 ```
 
@@ -85,6 +121,12 @@ Captures the geographic location of the borrower at the time of origination.
 A standard calendar lookup table for cohort and vintage analysis (time-series reporting).
 * **Primary Key:** `date_key` (Format: `YYYYMMDD`)
 * **Attributes:** `full_date`, `month_num`, `year_num`, `quarter_num`.
+* **Note:** The Fact table links to this one table through four date keys. A missing date stays `NULL` in the Fact table, so use `LEFT JOIN` on the optional dates or those loans will drop out of the results.
+
+### `Dim_Status`
+Captures the current state of the loan.
+* **Surrogate Key:** `status_key`
+* **Attributes:** `loan_status` (the raw text status), `status_group` (Active, Late, Paid, Defaulted).
 
 ## 4. The Fact Table (The "Metrics")
 
@@ -94,7 +136,7 @@ This is the massive central table holding all quantitative measurements, financi
 **Keys:**
 * **Primary Key:** `loan_fact_key` (Surrogate)
 * **Natural Key:** `loan_id` (The original ID from Lending Club)
-* **Foreign Keys:** `borrower_key`, `loan_dim_key`, `geography_key`, `issue_date_key`
+* **Foreign Keys:** `borrower_key`, `loan_dim_key`, `geography_key`, `status_key`, `issue_date_key`, `earliest_cr_date_key`, `last_pymnt_date_key`, `next_pymnt_date_key`
 
 **Core Financial Exposures (Metrics):**
 * `loan_amnt`, `funded_amnt`, `int_rate`, `installment`
@@ -105,6 +147,5 @@ This is the massive central table holding all quantitative measurements, financi
 **Repayment Tracking:**
 * `out_prncp`, `total_pymnt`, `total_rec_prncp`, `total_rec_int`, `total_rec_late_fee`, `recoveries`, `last_pymnt_amnt`
 
-**Target Variables:**
-* `loan_status` (The raw text status)
+**Target Variable:**
 * `is_default` (Binary: 1 = Bad/Charged Off, 0 = Good/Fully Paid, NULL = Active)
