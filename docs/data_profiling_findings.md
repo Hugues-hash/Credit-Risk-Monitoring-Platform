@@ -43,18 +43,18 @@
 
 # Key Findings Informing Phase 2 (Star Schema Design & ETL Transformation)
 
-1. **Natural Key Selection (`Dim_Loan` & `Fact_Loan_Performance`)**
+1. **Natural Key Selection (`Fact_Loan_Performance`)**
    * **Finding**: `id` is 100% unique and safe to use as the primary key for the loan grain. `member_id` is entirely `NULL` and must be dropped.
-   * **Star Schema Action**: Exclude `member_id` from all dimension tables. Use `id` as the primary key in `Fact_Loan_Performance`.
+   * **Star Schema Action**: Exclude `member_id` from all dimension tables. Keep `id` as the natural key `loan_id` in `Fact_Loan_Performance`, with the surrogate `loan_fact_key` as the primary key.
 
 2. **Target Variable Mapping for Credit Risk Modeling (`Fact_Loan_Performance`)**
    * **Finding**: Loan outcomes are split across 10 distinct text categories.
-   * **Star Schema Action**: Create a derived boolean column or staging transformation `is_default` where `Charged Off`, `Default`, and policy exceptions map to `1`, while `Fully Paid` maps to `0`. Active loans (`Current`, `Grace Period`, `Late`) will have a `NULL` outcome and should be isolated during model training.
+   * **Star Schema Action**: Create a derived boolean column or staging transformation `is_default` where `Charged Off`, `Default`, and policy exceptions map to `1`, while `Fully Paid` maps to `0`. Active loans (`Current`, `Grace Period`, `Late`) will have a `NULL` outcome and should be isolated during model training. The status text itself moves to `Dim_Status`.
 
 3. **Data Cleansing & Normalization Rules (`ETL Pipeline`)**
    * **Finding**: `term` contains leading whitespace (` ' 36 months'`), `dti` contains negative values (`-1`) and extreme ceilings (`999`), and `annual_inc` contains zero-value entries.
    * **Star Schema Action**: Build explicit transformation logic into your SQL/Python views to trim strings (`LTRIM(RTRIM(term))`), sanitize negative financial ratios, and handle null or zero-income edge cases using `COALESCE` or default imputation flags.
 
-4. **Dimension Table Splitting (`Dim_Borrower`, `Dim_Geography`, `Dim_Date`)**
-   * **Finding**: Categorical data is rich across borrower traits (`emp_length`, `home_ownership`, `grade`, `sub_grade`), geography (`addr_state`, `zip_code`), and time (`issue_d`).
+4. **Dimension Table Splitting (`Dim_Borrower`, `Dim_Loan`, `Dim_Geography`, `Dim_Date`, `Dim_Status`)**
+   * **Finding**: Categorical data is rich across borrower traits (`emp_length`, `home_ownership`, `verification_status`), loan terms (`term`, `grade`, `sub_grade`, `purpose`, `application_type`), geography (`addr_state`, `zip_code`), time (`issue_d`, `earliest_cr_line`, `last_pymnt_d`, `next_pymnt_d`), and loan state (`loan_status`).
    * **Star Schema Action**: Extract these into dedicated dimensions to prevent duplication in the central fact table, ensuring clean joins for Power BI reporting and machine learning feature stores.

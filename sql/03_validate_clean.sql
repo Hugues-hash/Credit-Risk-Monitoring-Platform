@@ -1,6 +1,3 @@
--- 01b_validate_clean.sql
--- Quick checks on filtered.loans. Run after 01_clean_staging.sql.
-
 USE credit_risk_db;
 GO
 

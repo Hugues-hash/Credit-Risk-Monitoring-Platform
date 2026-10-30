@@ -38,7 +38,7 @@ SELECT
     TRY_CAST(int_rate    AS DECIMAL(5, 2))          AS int_rate,
     TRY_CAST(installment AS DECIMAL(10, 2))         AS installment,
 
-    -- Borrower risk (Cleaned anomalies and extreme outliers)
+    -- Borrower risk 
     CASE 
         WHEN TRY_CAST(annual_inc AS DECIMAL(14, 2)) < 5000 THEN NULL
         ELSE TRY_CAST(annual_inc AS DECIMAL(14, 2))

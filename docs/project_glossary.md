@@ -11,7 +11,7 @@
 
 ### 2. Dimension Table (`Dim_...`)
 * **Definition**: A descriptive table in a Star Schema that contains categorical attributes about business entities (e.g., who, what, where).
-* **In This Project**: Tables like `Dim_Borrower` (employment, home ownership), `Dim_Loan` (grades, terms), and `Dim_Geography` (states, zip codes) that provide context to your numerical metrics.
+* **In This Project**: Tables like `Dim_Borrower` (employment, home ownership), `Dim_Loan` (grades, terms), `Dim_Geography` (states, zip codes), `Dim_Date` (calendar), and `Dim_Status` (loan status) that provide context to your numerical metrics.
 
 ### 3. Fact Table (`Fact_...`)
 * **Definition**: The central table in a Star Schema containing quantitative, numerical measurements (metrics) and foreign keys linking to dimension tables.
@@ -23,7 +23,7 @@
 
 ### 4. Loan Performance (`loan_status`)
 * **Definition**: The current state or final outcome of a lending contract indicating whether money is being repaid or lost.
-* **In This Project**: The overarching tracking category for every loan lifecycle stage, dictating whether a row represents a performing asset or a default.
+* **In This Project**: The overarching tracking category for every loan lifecycle stage, dictating whether a row represents a performing asset or a default. It is stored in `Dim_Status` alongside `status_group` (Active, Late, Paid, Defaulted), and `Fact_Loan_Performance` links to it through `status_key`.
 
 ### 5. Default
 * **Definition**: When a borrower fails to make their required contractual loan payments for an extended period (typically 90 to 180+ days past due).
