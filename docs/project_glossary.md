@@ -1,52 +1,57 @@
-# Lending Club Credit Risk Platform: Project Glossary
+# Project Glossary
 
-## Architectural & Technical Terms
+## Data Terms
 
-### 1. ETL (Extract, Transform, Load)
-* **Definition**: The core data engineering pipeline process. 
-* **In This Project**: 
-  * **Extract**: Reading raw CSV files into Python/Pandas chunks.
-  * **Transform**: Cleaning strings (trimming `term`), handling nulls, formatting dates, and filtering out trailing artifact rows.
-  * **Load**: Writing the cleaned records into SQL Server staging tables and eventually into your Star Schema.
+### ETL (Extract, Transform, Load)
+The process of moving data from a source into a database.
+- **Extract:** `python/stage_raw_data.py` reads the CSV in chunks.
+- **Transform:** `sql/02_clean_staging.sql` fixes types, text values and bad values.
+- **Load:** the raw data goes into `staging`, the cleaned data into `filtered`, and the star schema into `warehouse`.
 
-### 2. Dimension Table (`Dim_...`)
-* **Definition**: A descriptive table in a Star Schema that contains categorical attributes about business entities (e.g., who, what, where).
-* **In This Project**: Tables like `Dim_Borrower` (employment, home ownership), `Dim_Loan` (grades, terms), `Dim_Geography` (states, zip codes), `Dim_Date` (calendar), and `Dim_Status` (loan status) that provide context to your numerical metrics.
+### Schema
+A folder inside the database that groups tables. This project uses three: `staging` (raw data), `filtered` (cleaned data) and `warehouse` (star schema).
 
-### 3. Fact Table (`Fact_...`)
-* **Definition**: The central table in a Star Schema containing quantitative, numerical measurements (metrics) and foreign keys linking to dimension tables.
-* **In This Project**: `Fact_Loan_Performance`, which holds loan amounts, interest rates, installment values, and default flags for every individual loan transaction.
+### Star Schema
+A database design with one central fact table linked to several dimension tables.
+
+### Dimension Table (`Dim_...`)
+A table of descriptive values used to filter and group data, such as state, grade or loan status. This project has `Dim_Borrower`, `Dim_Loan`, `Dim_Geography`, `Dim_Date` and `Dim_Status`.
+
+### Fact Table (`Fact_...`)
+The central table that holds the numbers (amounts, rates, scores) and the keys that link to each dimension. This project has `Fact_Loan_Performance`, with one row per loan.
+
+### Surrogate Key
+A number created by the database to identify a row, such as `borrower_key`. The fact table stores these numbers instead of repeating the text values.
 
 ---
 
-## Financial & Credit Risk Terms
+## Credit Risk Terms
 
-### 4. Loan Performance (`loan_status`)
-* **Definition**: The current state or final outcome of a lending contract indicating whether money is being repaid or lost.
-* **In This Project**: The overarching tracking category for every loan lifecycle stage, dictating whether a row represents a performing asset or a default. It is stored in `Dim_Status` alongside `status_group` (Active, Late, Paid, Defaulted), and `Fact_Loan_Performance` links to it through `status_key`.
+### Loan Status (`loan_status`)
+The current state of a loan, such as Current, Fully Paid or Charged Off. Stored in `Dim_Status`, together with `status_group` (Active, Late, Paid, Defaulted).
 
-### 5. Default
-* **Definition**: When a borrower fails to make their required contractual loan payments for an extended period (typically 90 to 180+ days past due).
-* **In This Project**: The primary target variable (`is_default = 1`) for your Phase 7 Probability of Default (PD) machine learning model.
+### Default
+When a borrower stops making the required payments. In this project, `is_default = 1` for Charged Off and Default loans, `0` for Fully Paid loans, and `NULL` for loans that are still open.
 
-### 6. Charged Off (`Charged Off`)
-* **Definition**: An accounting status where a lender officially writes off a delinquent debt as a financial loss because the borrower is severely behind and collection efforts have failed.
-* **In This Project**: The primary empirical indicator of a defaulted loan in the Lending Club dataset.
+### Charged Off
+The lender has written the loan off as a loss because the borrower is far behind and collection has failed. This is the most common default status in the data.
 
-### 7. Grace Period
-* **Definition**: A short window of time (usually 1 to 15 days) following a monthly payment due date during which a borrower can pay late without incurring a late fee or triggering delinquency status.
-* **In This Project**: An active, non-default portfolio status indicating temporary distress.
+### Grace Period
+A short window (usually up to 15 days) after a payment is due, during which the borrower can pay without a late fee.
 
-### 8. Late (`Late (16-30 days)` / `Late (31-120 days)`)
-* **Definition**: Status assigned when a borrower misses their monthly payment deadline beyond the grace period, categorized by how many days elapsed.
-* **In This Project**: A critical leading indicator of credit risk that flags loans at high risk of moving into complete default.
+### Late (`Late (16-30 days)` / `Late (31-120 days)`)
+The borrower has missed a payment beyond the grace period. Late loans are at high risk of default but are not counted as defaults.
 
-### 9. DTI (Debt-to-Income Ratio)
-* **Definition**: A personal finance measure that compares a borrower’s total monthly debt payments against their gross monthly income, expressed as a percentage.
-* **In This Project**: A key risk driver; profiling revealed values ranging from -1 to 999, meaning extreme outliers and anomalies must be cleaned before modeling borrower risk capacity.
+### Joint Application
+A loan that two people apply for together. For these loans the combined income (`annual_inc_joint`) and combined DTI (`dti_joint`) are used.
 
-### 10. Fico_score
-FICO is the standard US credit score, ranging from 300 to 850. Higher means lower risk. It's the strongest single predictor of default, so your model and dashboards should include it.
-fico_score = (fico_range_low + fico_range_high) / 2. In your data that gives scores from 612 to 847. Treat a last_fico value of 0 as NULL.
+### DTI (Debt-to-Income Ratio)
+A borrower's monthly debt payments divided by their monthly income, as a percentage. Higher DTI means more risk.
 
-Use fico_score in the ML model. Don't use last_fico_score: it's measured after the loan was issued, so a defaulted borrower's later score has already dropped. That leaks the answer into the training data.
+### FICO Score
+The standard US credit score, from 300 to 850. Higher means lower risk. LendingClub gives a range (`fico_range_low`, `fico_range_high`), so `fico_score` is the average of the two. In this data it ranges from 612 to 847.5.
+
+`last_fico_range_low` and `last_fico_range_high` are not used. They are measured after the loan was issued, so they already reflect whether the borrower defaulted and would leak the outcome into the model.
+
+### Revolving Utilization (`revol_util`)
+How much of their available credit card limit a borrower is using, as a percentage. Values above 100% mean the borrower is over their limit.

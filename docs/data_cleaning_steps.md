@@ -1,6 +1,6 @@
 # Data Cleaning Steps
 
-This page explains how the raw loan data is cleaned before we build the star schema.
+How the raw loan data is cleaned before the star schema is built.
 
 - **Script:** `sql/02_clean_staging.sql`
 - **Checks:** `sql/03_validate_clean.sql`
@@ -33,6 +33,8 @@ The CSV has 151 columns. We keep about 45 of them. Any column not listed in the 
 | `hardship_*`, `settlement_*`, `sec_app_*` | Mostly empty, not needed for now |
 | `*_inv` columns | Investor copies of columns we already keep |
 
+`annual_inc_joint` and `dti_joint` are not kept as separate columns. They are used inside `annual_inc` and `dti` for joint applications (see Step 6).
+
 ## Step 2: Remove the 33 summary rows
 
 The last 33 rows of the CSV are not loans. They are summary lines such as `Total amount funded in policy code 1: 6417608175`. These rows have no `loan_status`, so we remove every row where `loan_status` is empty.
@@ -57,15 +59,39 @@ Columns: `issue_d`, `earliest_cr_line`, `last_pymnt_d`, `next_pymnt_d`.
 
 All money amounts, rates and counts are converted from text to numbers so we can add, average and compare them. For example, the text `'35000.0'` becomes the number `35000.00`.
 
-## Step 6: Fix impossible values
+## Step 6: Use joint income and DTI for joint applications
 
-| Column | Problem | Fix |
-|---|---|---|
-| `annual_inc` | Contains junk entries ($0, $0.36) well below survival wages | Set anything `< 5000` to empty (NULL) to remove bad data. |
-| `dti` | Contains `-1` and system placeholder `999` | Set `-1` and `999` to empty (NULL). |
-| `revol_util` | Extremely high outliers up to 892% | Set anything `> 150` to empty (NULL) as these are likely data entry errors. |
+A **joint application** is when two people (usually spouses or partners) apply for one loan together. Both are responsible for paying it back. 120,710 loans (about 5%) are joint.
 
-## Step 7: Add new columns
+For these loans, `annual_inc` and `dti` describe **only the first applicant**. The real household numbers, which LendingClub used to approve the loan, are in `annual_inc_joint` and `dti_joint`.
+
+Example from the data:
+
+| | First applicant only | Both applicants (joint) |
+|---|---:|---:|
+| Annual income | $10,000 | $135,000 |
+| DTI | 221% | 18.3% |
+
+Using only the first applicant made these loans look broken. They caused **all** 1,667 zero incomes and **all** DTI values above 100 (including every `999`). So:
+
+- **Joint App** → `annual_inc` comes from `annual_inc_joint`, and `dti` comes from `dti_joint`
+- **Individual** → the normal `annual_inc` and `dti` are used
+
+After this, the highest DTI in the data is 69.49 and there are no zero incomes.
+
+## Step 7: Fix impossible values
+
+These rules run after Step 6, so they only catch values that are still wrong.
+
+| Column | Problem | Fix | Rows affected |
+|---|---|---|---:|
+| `annual_inc` | A few individual incomes too small to be real (as low as $1,896 a year) | Set anything `< 5000` to empty (NULL) | 53 |
+| `dti` | Placeholder values `-1` and `999` | Set to empty (NULL) | 1 |
+| `revol_util` | Extreme values above 150%, up to 892% | Set anything `> 150` to empty (NULL) | 28 |
+
+`revol_util` values between 100% and 150% (7,315 loans) are kept. They are real: the borrower is over their credit card limit.
+
+## Step 8: Add new columns
 
 | New column | How it is made | Why |
 |---|---|---|
@@ -73,7 +99,8 @@ All money amounts, rates and counts are converted from text to numbers so we can
 | `is_default` | From `loan_status` (see below) | The outcome we want to predict |
 
 **How `is_default` is set:**
-*(Note: We keep strict definitions. Loans that are "Late 31-120 days" remain active/NULL because they have not officially been written off as a loss yet. This prevents label noise in our machine learning models).*
+
+Late loans stay `NULL` because they have not been written off yet. Some of them still get paid back, so counting them as defaults would give the model wrong labels.
 
 | `loan_status` | `is_default` |
 |---|---|
@@ -91,9 +118,9 @@ Not every empty value means the same thing, so they are treated differently.
 |---|---:|---|---|
 | `next_pymnt_date` | 1,345,310 | The loan is closed, so there is no next payment | Keep empty. This is the correct answer, not missing data |
 | `emp_length` | 146,907 | Borrower did not give it | Label as `Unknown`. Being unknown may itself be a sign of risk |
-| `annual_inc` | ~1,671+ | Blank or `< 5000` in the source | Keep empty in SQL |
-| `dti` | ~1,713+ | Blank, `-1`, or `999` in the source | Keep empty in SQL |
-| `revol_util` | ~1,802+ | Blank or `> 150%` in the source | Keep empty in SQL |
+| `annual_inc` | 57 | 4 blank in the source + 53 under $5,000 | Keep empty in SQL |
+| `dti` | 5 | 4 joint loans with no `dti_joint` + 1 value of `-1` | Keep empty in SQL |
+| `revol_util` | 1,830 | 1,802 blank in the source + 28 above 150% | Keep empty in SQL |
 | `earliest_cr_date` | 29 | Blank in the source | Keep empty in SQL |
 
 **Why we don't fill in guesses here:**
@@ -114,7 +141,10 @@ Run `sql/03_validate_clean.sql` after cleaning. Expected results:
 | `term_months` | 36 = 1,609,754 · 60 = 650,914 |
 | `issue_date` range | 2007-06-01 to 2018-12-01 |
 | `fico_score` range | 612 to 847.5 |
+| `dti` range | 0 to 69.49 |
+| `annual_inc` range | $5,000 to $110,000,000 |
+| `revol_util` maximum | 148 |
 
 ## Things to look at later
 
-- High-end outliers in `annual_inc` (up to $110M) are preserved in SQL but should be handled via capping or log-transformation during the Python machine learning phase so they don't skew linear models.
+- `annual_inc` goes up to $110M. These very high incomes are kept in SQL, and will be capped or log-transformed in Python before modelling.

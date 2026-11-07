@@ -3,8 +3,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.types import Text
 import time
 
-# Connect to your local SQL Server Express instance
-# Added '&UseFMTONLY=yes' to fix the fast_executemany truncation bug
+# Local SQL Server Express. UseFMTONLY=yes stops fast_executemany from cutting long text values.
 engine = create_engine(
     "mssql+pyodbc://localhost\\SQLEXPRESS/credit_risk_db?driver=ODBC+Driver+17+for+SQL+Server&trusted_connection=yes&UseFMTONLY=yes",
     fast_executemany=True
@@ -21,22 +20,15 @@ chunk_size = 100_000
 chunks_loaded = 0
 rows_loaded = 0
 
-# Clean up the partially loaded table from the previous failed run
+# Start from an empty table on every run
 with engine.begin() as conn:
     conn.exec_driver_sql(f"IF OBJECT_ID('{schema_name}.{table_name}', 'U') IS NOT NULL DROP TABLE {schema_name}.{table_name}")
 
-# Read and insert in chunks
-# Read everything as strings: per-chunk type inference is inconsistent (e.g. a column
-# that is all-NaN in chunk 1 becomes FLOAT, then fails when text appears later).
-# Staging stays raw text; type casting happens downstream in SQL.
+# Load every column as text. Data types are fixed later in SQL (02_clean_staging.sql).
 for chunk in pd.read_csv(csv_path, chunksize=chunk_size, dtype=str):
-    # Clean column names (lowercase, replace spaces with underscores)
     chunk.columns = [c.strip().lower().replace(" ", "_") for c in chunk.columns]
-
-    # Every column is unlimited text so the table schema doesn't depend on chunk 1
     column_dtypes = {col: Text() for col in chunk.columns}
-    
-    # Write to SQL (always append since we dropped the table initially)
+
     chunk.to_sql(
         name=table_name, 
         con=engine, 
