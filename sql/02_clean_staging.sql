@@ -38,13 +38,16 @@ SELECT
     TRY_CAST(int_rate    AS DECIMAL(5, 2))          AS int_rate,
     TRY_CAST(installment AS DECIMAL(10, 2))         AS installment,
 
-    -- Borrower risk 
-    CASE 
+    -- Borrower risk
+    -- Joint applications: use the combined income / DTI of both applicants
+    CASE
+        WHEN application_type = 'Joint App' THEN TRY_CAST(annual_inc_joint AS DECIMAL(14, 2))
         WHEN TRY_CAST(annual_inc AS DECIMAL(14, 2)) < 5000 THEN NULL
         ELSE TRY_CAST(annual_inc AS DECIMAL(14, 2))
     END AS annual_inc,
-    
-    CASE 
+
+    CASE
+        WHEN application_type = 'Joint App' THEN TRY_CAST(dti_joint AS DECIMAL(7, 2))
         WHEN TRY_CAST(dti AS DECIMAL(7, 2)) IN (-1, 999) THEN NULL
         ELSE TRY_CAST(dti AS DECIMAL(7, 2))
     END AS dti,

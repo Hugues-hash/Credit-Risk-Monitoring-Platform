@@ -13,3 +13,8 @@ __pycache__/
 Thumbs.db
 .vscode/
 .idea/
+# Personal notes
+docs/notes-*.md
+
+# Claude Code local settings
+.claude/

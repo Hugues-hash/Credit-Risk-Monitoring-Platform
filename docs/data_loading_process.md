@@ -1,72 +1,76 @@
-# Data Loading Process (Silver to Gold Layer)
+# Data Loading Process
 
-This document explains the final step of our database pipeline: moving the cleaned data from `filtered.loans` (our Silver layer) into the `warehouse` Star Schema (our Gold layer).
+How the cleaned data in `filtered.loans` is loaded into the `warehouse` star schema.
 
-The empty warehouse tables are created by `sql/04_star_schema.sql`. The load itself will be executed via `sql/05_populate_warehouse.sql`, which has not been written yet.
+| Order | Script | What it does |
+|---|---|---|
+| 1 | `sql/04_star_schema.sql` | Creates the empty warehouse tables |
+| 2 | `sql/05_load_dimensions.sql` | Fills the five dimension tables |
+| 3 | `sql/06_load_fact.sql` | Fills the fact table |
+| 4 | `sql/07_validate_warehouse.sql` | Checks the load |
 
-## The Strategy: Two-Step Pumping
+Dimensions are loaded before the fact table, because the fact table stores the dimension keys.
 
-You cannot load a Star Schema all at once. Because the central Fact table relies on ID numbers (Surrogate Keys) that come from the Dimension tables, we must load the data in a specific order:
-1. **Load Dimensions First:** Extract all unique descriptive categories.
-2. **Load Fact Table Second:** Grab the new IDs from the dimensions and store them alongside the heavy numerical metrics.
+Scripts 05 and 06 empty their tables before loading, so they can be run again at any time.
 
----
+## Step 1: Load the dimensions
 
-## Step 1: Populating Dimension Tables (The "Who, What, Where, When")
+Each dimension is filled with `SELECT DISTINCT` on its columns, which keeps one row per combination of values that appears in the data. SQL Server numbers the rows automatically (`IDENTITY`).
 
-**Why these columns?** Dimension tables hold *categorical* and *descriptive* data. They are the text-based attributes you will use in Power BI to slice, filter, and group your dashboards (e.g., "Show me defaults *by State* or *by Loan Grade*"). 
+| Table | Columns | Rows |
+|---|---|---:|
+| `Dim_Borrower` | `emp_length`, `home_ownership`, `verification_status` | 144 |
+| `Dim_Loan` | `term_months`, `grade`, `sub_grade`, `purpose`, `application_type` | 1,626 |
+| `Dim_Geography` | `addr_state`, `zip_code` | 3,423 |
+| `Dim_Status` | `loan_status`, `status_group` | 9 |
+| `Dim_Date` | `date_key`, `full_date`, `month_num`, `year_num`, `quarter_num` | 4,748 |
 
-We use `SELECT DISTINCT` to ensure we only insert unique combinations of these traits, which saves massive amounts of storage space. SQL Server automatically generates a unique integer ID (`IDENTITY`) for each new row. The exception is `Dim_Date`, whose `date_key` is built from the date itself (`YYYYMMDD`).
+Notes:
 
-### 1. `Dim_Borrower`
-Contains information about the person applying for the loan.
-* **Columns Extracted:** `emp_length`, `home_ownership`, `verification_status`
-* **Why?** These are borrower-specific traits that describe their financial stability and living situation. 
+- `Dim_Borrower` has every possible combination: 12 employment lengths × 4 home ownership types × 3 verification statuses = 144.
+- `Dim_Loan` could have up to 1,960 combinations (2 terms × 35 sub-grades × 14 purposes × 2 application types), but only 1,626 appear in the data. Grade does not add to the count because each sub-grade belongs to one grade.
+- `Dim_Geography` has more rows than there are zip codes (956), because some 3-digit zip codes appear under more than one state.
+- `Dim_Status` groups each status:
 
-### 2. `Dim_Loan`
-Contains the configuration and classification of the loan product.
-* **Columns Extracted:** `term_months`, `grade`, `sub_grade`, `purpose`, `application_type`
-* **Why?** These attributes define the loan itself. `grade` and `sub_grade` are Lending Club's proprietary risk bands, while `purpose` tells us *why* they wanted the money (e.g., debt consolidation, wedding).
+  | `status_group` | `loan_status` |
+  |---|---|
+  | Active | Current |
+  | Late | In Grace Period, Late (16-30 days), Late (31-120 days) |
+  | Paid | Fully Paid, Does not meet the credit policy. Status:Fully Paid |
+  | Defaulted | Charged Off, Default, Does not meet the credit policy. Status:Charged Off |
 
-### 3. `Dim_Geography`
-Contains location data.
-* **Columns Extracted:** `addr_state`, `zip_code`
-* **Why?** Grouping by location allows for regional economic analysis (e.g., do certain states have higher default rates?).
+- `Dim_Date` is not built from the loan data. It is a calendar with one row per day from 2007-01-01 to 2019-12-31, which covers the first loan (June 2007) and the latest `next_pymnt_d` (May 2019). `date_key` is the date written as a number, for example `2018-03-15` → `20180315`.
 
-### 4. `Dim_Date`
-Contains calendar information.
-* **Columns Extracted:** `issue_date`, `earliest_cr_date`, `last_pymnt_date`, `next_pymnt_date` (transformed into `date_key`, `full_date`, `month_num`, `year_num`, `quarter_num`)
-* **Why?** Building a dedicated date table is a Power BI best practice. It allows for "Time Intelligence" calculations like month-over-month growth or cohort vintage tracking. The table must cover every date in all four columns, or the Fact table load will fail on the foreign keys.
+## Step 2: Load the fact table
 
-### 5. `Dim_Status`
-Contains the state of the loan.
-* **Columns Extracted:** `loan_status` (mapped into `status_group`: Active, Late, Paid, Defaulted)
-* **Why?** `is_default` is `NULL` for every loan that is still open, so it cannot separate a healthy loan from a late one. `status_group` makes that split available for monitoring dashboards.
+Each loan in `filtered.loans` is joined to the dimensions on the same columns that built them, to get its keys:
 
----
+| Key | Matched on |
+|---|---|
+| `borrower_key` | `emp_length`, `home_ownership`, `verification_status` |
+| `loan_dim_key` | `term_months`, `grade`, `sub_grade`, `purpose`, `application_type` |
+| `geography_key` | `addr_state`, `zip_code` |
+| `status_key` | `loan_status` |
 
-## Step 2: Populating the Fact Table (The "How Much")
+One loan has no zip code. The geography join uses `IS NOT DISTINCT FROM` instead of `=` so that this loan still matches its row in `Dim_Geography`.
 
-**Why these columns?** The Fact table (`Fact_Loan_Performance`) is the massive, central table. It is designed to hold *quantitative* data—the numbers you want to sum, average, or predict. 
+The three date keys (`issue_date_key`, `last_pymnt_date_key`, `next_pymnt_date_key`) are calculated directly from the dates with the same `YYYYMMDD` formula as `Dim_Date`, so no join is needed. A missing date gives a `NULL` key, for example `next_pymnt_date_key` on a closed loan.
 
-Instead of storing repeating text (like the word "MORTGAGE" 1.2 million times), it stores the tiny integer IDs linking back to the dimensions, alongside all the heavy financial math.
+`earliest_cr_date` (when the borrower opened their first credit account) is not stored as a date key. It goes back to 1933, which would stretch the calendar far beyond the loan period. Instead it becomes `credit_history_months`, the number of months between the first credit account and the loan's issue date. This is also the form the model needs.
 
-### 1. The Surrogate Keys (The Links)
-* **Columns:** `borrower_key`, `loan_dim_key`, `geography_key`, `status_key`, `issue_date_key`, `earliest_cr_date_key`, `last_pymnt_date_key`, `next_pymnt_date_key`
-* **Why?** The script joins the 2.26 million rows in `filtered.loans` against the new Dimension tables to fetch these integer IDs. This links the numbers to their descriptive categories. A missing date stays `NULL`, so the date keys must be built without an `INNER JOIN` to `Dim_Date`, which would drop those loans.
+All the other numeric columns (loan amounts, borrower risk values, repayment amounts and `is_default`) are copied from `filtered.loans` unchanged.
 
-### 2. Financial Exposure Metrics
-* **Columns:** `loan_amnt`, `funded_amnt`, `int_rate`, `installment`
-* **Why?** These define the core financial size and cost of the loan agreement.
+## Step 3: Validate
 
-### 3. Borrower Risk Features (For Machine Learning)
-* **Columns:** `annual_inc`, `dti`, `revol_util`, `revol_bal`, `fico_score`, `delinq_2yrs`, `inq_last_6mths`, `open_acc`, `total_acc`, `pub_rec`
-* **Why?** These are historical financial health indicators. These columns are the most critical features we will feed into our Python Probability of Default (PD) machine learning model in Phase 7.
+`sql/07_validate_warehouse.sql` runs five checks. Results from the latest load:
 
-### 4. Repayment Tracking
-* **Columns:** `out_prncp`, `total_pymnt`, `total_rec_prncp`, `total_rec_int`, `total_rec_late_fee`, `recoveries`, `last_pymnt_amnt`
-* **Why?** These track the money actually coming back to the lender. `recoveries`, for example, tracks money salvaged from debt collectors after a default.
+| Check | Result |
+|---|---|
+| Fact rows | 2,260,668, same as `filtered.loans` |
+| Total `funded_amnt` | $34,004,208,600 in both `filtered.loans` and the fact table |
+| Defaults (`is_default = 1`) | 269,360 in both |
+| Loans missing a borrower, loan, geography, status or issue date key | 0 |
+| Empty optional date keys | `last_pymnt_date_key` 2,427, `next_pymnt_date_key` 1,345,310 |
+| `credit_history_months` | Empty for 29 loans, range 6 to 999 months |
 
-### 5. Target Variable
-* **Columns:** `is_default` (Binary 1, 0, or NULL)
-* **Why?** `is_default` is our "North Star" target variable. Everything else in the database is ultimately being analyzed to predict or explain this exact column.
+The empty values match the missing dates in `filtered.loans`.
