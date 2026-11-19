@@ -26,7 +26,13 @@ SELECT
     ISNULL(emp_length, 'Unknown') AS emp_length,
     CASE WHEN home_ownership IN ('ANY', 'NONE') THEN 'OTHER'
          ELSE home_ownership END AS home_ownership,
-    verification_status,
+    -- Joint applications: use the verification of the combined income
+    -- (falls back to the first applicant's status when the joint one is missing)
+    CASE
+        WHEN application_type = 'Joint App'
+            THEN COALESCE(verification_status_joint, verification_status)
+        ELSE verification_status
+    END AS verification_status,
     purpose,
     application_type,
     addr_state,

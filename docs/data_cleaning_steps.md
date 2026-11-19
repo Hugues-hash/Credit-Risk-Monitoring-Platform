@@ -33,7 +33,7 @@ The CSV has 151 columns. We keep about 45 of them. Any column not listed in the 
 | `hardship_*`, `settlement_*`, `sec_app_*` | Mostly empty, not needed for now |
 | `*_inv` columns | Investor copies of columns we already keep |
 
-`annual_inc_joint` and `dti_joint` are not kept as separate columns. They are used inside `annual_inc` and `dti` for joint applications (see Step 6).
+`annual_inc_joint`, `dti_joint` and `verification_status_joint` are not kept as separate columns. They are used inside `annual_inc`, `dti` and `verification_status` for joint applications (see Step 6).
 
 ## Step 2: Remove the 33 summary rows
 
@@ -59,7 +59,7 @@ Columns: `issue_d`, `earliest_cr_line`, `last_pymnt_d`, `next_pymnt_d`.
 
 All money amounts, rates and counts are converted from text to numbers so we can add, average and compare them. For example, the text `'35000.0'` becomes the number `35000.00`.
 
-## Step 6: Use joint income and DTI for joint applications
+## Step 6: Use joint income, DTI and verification for joint applications
 
 A **joint application** is when two people (usually spouses or partners) apply for one loan together. Both are responsible for paying it back. 120,710 loans (about 5%) are joint.
 
@@ -78,6 +78,17 @@ Using only the first applicant made these loans look broken. They caused **all**
 - **Individual** → the normal `annual_inc` and `dti` are used
 
 After this, the highest DTI in the data is 69.49 and there are no zero incomes.
+
+**Verification status.** `verification_status` says whether LendingClub checked the **first applicant's** income. For joint loans we now use the combined income, so we also use `verification_status_joint`, which says whether the **combined** income was checked. The two often differ:
+
+| Joint loans | Count |
+|---|---:|
+| Same status for first applicant and household | 93,814 |
+| Household status is lower (e.g. first applicant `Verified`, household `Not Verified`) | 21,916 |
+| No `verification_status_joint` in the source | 4,980 |
+
+- **Joint App** → `verification_status` comes from `verification_status_joint`. If that is empty, the first applicant's status is kept, so no new empty values are created
+- **Individual** → the normal `verification_status` is used
 
 ## Step 7: Fix impossible values
 
