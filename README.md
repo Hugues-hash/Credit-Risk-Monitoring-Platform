@@ -1,6 +1,6 @@
 # Credit Risk Monitoring Platform
 
-A SQL Server data warehouse built on LendingClub loan data (2007–2018, 2.26M loans), for credit risk dashboards in Power BI and a probability of default model.
+A SQL Server data warehouse built on LendingClub loan data (2007-2018, 2.26M loans), for credit risk dashboards in Power BI and a probability of default model.
 
 ## Pipeline
 
@@ -26,8 +26,6 @@ FRED CSV  →  staging.stg_macro_fred  ─────────────�
 | 11 | `sql/09_analytics_schema.sql` | Creates the `analytics` schema and the alert thresholds table |
 | 12 | `sql/09a`–`09h_vw_*.sql` | Create the risk metric views |
 | 13 | `sql/10_validate_analytics.sql` | Checks the views against `filtered.loans` (all rows must say PASS) |
-
-Run the files in this order.
 
 ## Risk Metric Views (`analytics`)
 
@@ -71,6 +69,4 @@ Definitions and validation results: `docs/risk_metrics_spec.md`.
 
 - SQL Server Express (2022 or later, for `IS NOT DISTINCT FROM`) with ODBC Driver 17
 - Python 3 with `pandas`, `sqlalchemy` and `pyodbc`
-- The LendingClub file `accepted_2007_to_2018Q4.csv`, saved in `data/` (not included in the repo because of its size)
-- The FRED file `macro_fred_combined.csv`, also saved in `data/`
 
