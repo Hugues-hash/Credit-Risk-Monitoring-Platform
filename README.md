@@ -5,8 +5,9 @@ A SQL Server data warehouse built on LendingClub loan data (2007–2018, 2.26M l
 ## Pipeline
 
 ```
-CSV  →  staging.stg_accepted_loans  →  filtered.loans  →  warehouse (star schema)
+CSV  →  staging.stg_accepted_loans  →  filtered.loans  →  warehouse (star schema)    →  analytics (risk metric views)
         (raw text)                     (cleaned)          (1 fact + 5 dimensions)
+FRED CSV  →  staging.stg_macro_fred  ───────────────────→  warehouse.Macro_Monthly  ─┘
 ```
 
 | Step | File | What it does |
@@ -20,8 +21,28 @@ CSV  →  staging.stg_accepted_loans  →  filtered.loans  →  warehouse (star 
 | 6 | `sql/05_load_dimensions.sql` | Loads the dimension tables |
 | 7 | `sql/06_load_fact.sql` | Loads the fact table |
 | 8 | `sql/07_validate_warehouse.sql` | Checks the warehouse load |
+| 9 | `python/stage_macro_data.py` | Loads the FRED macro CSV into `staging.stg_macro_fred` |
+| 10 | `sql/08_load_macro.sql` | Builds `warehouse.Macro_Monthly` (monthly unemployment, Fed funds rate, inflation) |
+| 11 | `sql/09_analytics_schema.sql` | Creates the `analytics` schema and the alert thresholds table |
+| 12 | `sql/09a`–`09h_vw_*.sql` | Create the risk metric views |
+| 13 | `sql/10_validate_analytics.sql` | Checks the views against `filtered.loans` (all rows must say PASS) |
 
 Run the files in this order.
+
+## Risk Metric Views (`analytics`)
+
+| View | Grain | Contents |
+|---|---|---|
+| `vw_default_rates` | Dimension × segment | Count and dollar default rates on closed loans, with maturity rate |
+| `vw_vintage_cohorts` | Issue quarter × grade | Cohort size, maturity, default rates, average FICO and interest rate |
+| `vw_vintage_curves` | Issue year × months on book | Cumulative default rate by loan age |
+| `vw_exposure_loss` | Issue year × grade | Originated, active and at-default exposure; recoveries, net loss, LGD |
+| `vw_delinquency_buckets` | Loan status | Open loans and balance per delinquency bucket |
+| `vw_delinquency_funnel` | One row | Delinquency rate, 31+ DPD rate, severity ratios (roll-rate stand-in) |
+| `vw_concentration_risk` | Dimension × segment | Exposure shares and threshold breach flags |
+| `vw_vintage_macro` | Issue quarter | Cohort default rates next to unemployment, Fed funds rate and inflation |
+
+Definitions and validation results: `docs/risk_metrics_spec.md`.
 
 ## Star Schema
 
@@ -42,7 +63,8 @@ Run the files in this order.
 | `docs/data_cleaning_steps.md` | Each cleaning rule and why |
 | `docs/star_schema_design.md` | Table design and diagram |
 | `docs/data_loading_process.md` | How the warehouse is loaded and checked |
-| `docs/project_glossary.md` | Data and credit risk terms |
+| `docs/risk_metrics_spec.md` | Phase 3 risk metric definitions, views and validation |
+| `docs/project_glossary.md` | Data, credit risk and economic terms |
 | `docs/LCDataDictionary.csv` | LendingClub's description of every column |
 
 ## Setup
@@ -50,4 +72,5 @@ Run the files in this order.
 - SQL Server Express (2022 or later, for `IS NOT DISTINCT FROM`) with ODBC Driver 17
 - Python 3 with `pandas`, `sqlalchemy` and `pyodbc`
 - The LendingClub file `accepted_2007_to_2018Q4.csv`, saved in `data/` (not included in the repo because of its size)
+- The FRED file `macro_fred_combined.csv`, also saved in `data/`
 
